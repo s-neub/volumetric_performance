@@ -23,37 +23,18 @@ import modelop.monitors.volumetrics as volumetrics
 import modelop.schema.infer as infer
 import modelop.utils as utils
 
-logger = utils.configure_logger()
-
-JOB = {}
-LABEL_COLUMN = []
-SCORE_COLUMN = []
-
-# Dimensional columns to slice record counts on
-DIMENSIONAL_COLUMNS = ["Document_Type", "action"]
-
-
 # modelop.init
 def init(init_param):
-    """Receive the job JSON, validate schema, and extract column names.
-
-    Args:
-        init_param (dict): job JSON
-    """
     global JOB
+    JOB = json.loads(init_param["rawJson"])
+    logger = utils.configure_logger()
     global LABEL_COLUMN
+    LABEL_COLUMN=JOB.get("jobParameters", {}).get("LABEL_COLUMN", []) 
     global SCORE_COLUMN
-
-    JOB = init_param
-    infer.validate_schema(init_param)
-
-    job = json.loads(init_param["rawJson"])
-    LABEL_COLUMN = job.get("jobParameters", {}).get("LABEL_COLUMN", [])
-    SCORE_COLUMN = job.get("jobParameters", {}).get("SCORE_COLUMN", [])
-
-    logger.info("LABEL_COLUMN: %s", LABEL_COLUMN)
-    logger.info("SCORE_COLUMN: %s", SCORE_COLUMN)
-
+    SCORE_COLUMN=JOB.get("jobParameters", {}).get("SCORE_COLUMN", []) 
+    # Dimensional columns to slice record counts on
+    global DIMENSIONAL_COLUMNS
+    DIMENSIONAL_COLUMNS = ["Document_Type", "action"]
 
 # modelop.metrics
 def metrics(dataframe: pandas.DataFrame) -> dict:
@@ -70,6 +51,9 @@ def metrics(dataframe: pandas.DataFrame) -> dict:
 
     global LABEL_COLUMN
     global SCORE_COLUMN
+    print("Running the metrics function") 
+    y_label=dataframe[LABEL_COLUMN]
+    y_pred=dataframe[SCORE_COLUMN]
 
     # ------------------------------------------------------------------
     # 1. OOTB Classification Performance  (ModelEvaluator)
