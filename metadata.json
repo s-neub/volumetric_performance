@@ -1,7 +1,7 @@
 {
     "tags": [],
-    "name": "Performance Monitor: Classification",
-    "description": "Model to compute classification metrics",
+    "name": "Performance & Volumetrics Monitor: Classification",
+    "description": "Model to compute volumetrics and classification metrics",
     "modelCategory": "MODEL_MONITORING_MODEL",
     "defaultAssociationRole": "PERFORMANCE_MODEL",
     "frequentlyUsed": true,
