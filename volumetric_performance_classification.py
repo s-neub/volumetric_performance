@@ -6,11 +6,11 @@ Combines:
   - Additional sklearn/pandas performance metrics (MCC, Cohen's Kappa, per-class precision/recall)
   - OOTB volumetric monitor (total record count)
   - Dimensional record-count tables for Document_Type and action columns
-    rendered as ModelOp `generic_table` artifacts
+    rendered as ModelOp generic_table artifacts
 """
 
+import json
 import pandas
-import numpy as np
 
 from sklearn.metrics import (
     matthews_corrcoef,
@@ -26,21 +26,33 @@ import modelop.utils as utils
 logger = utils.configure_logger()
 
 JOB = {}
+LABEL_COLUMN = []
+SCORE_COLUMN = []
 
 # Dimensional columns to slice record counts on
 DIMENSIONAL_COLUMNS = ["Document_Type", "action"]
 
 
 # modelop.init
-def init(job_json: dict) -> None:
-    """Receive the job JSON and validate schema fail-fast.
+def init(init_param):
+    """Receive the job JSON, validate schema, and extract column names.
 
     Args:
-        job_json (dict): job JSON
+        init_param (dict): job JSON
     """
     global JOB
-    JOB = job_json
-    infer.validate_schema(job_json)
+    global LABEL_COLUMN
+    global SCORE_COLUMN
+
+    JOB = init_param
+    infer.validate_schema(init_param)
+
+    job = json.loads(init_param["rawJson"])
+    LABEL_COLUMN = job.get("jobParameters", {}).get("LABEL_COLUMN", [])
+    SCORE_COLUMN = job.get("jobParameters", {}).get("SCORE_COLUMN", [])
+
+    logger.info("LABEL_COLUMN: %s", LABEL_COLUMN)
+    logger.info("SCORE_COLUMN: %s", SCORE_COLUMN)
 
 
 # modelop.metrics
@@ -56,6 +68,9 @@ def metrics(dataframe: pandas.DataFrame) -> dict:
         dict: Combined performance + volumetric + dimensional results.
     """
 
+    global LABEL_COLUMN
+    global SCORE_COLUMN
+
     # ------------------------------------------------------------------
     # 1. OOTB Classification Performance  (ModelEvaluator)
     # ------------------------------------------------------------------
@@ -69,15 +84,10 @@ def metrics(dataframe: pandas.DataFrame) -> dict:
     # ------------------------------------------------------------------
     # 2. Supplemental Performance Metrics  (pandas + sklearn)
     # ------------------------------------------------------------------
-    # Resolve the score and label column names from the schema
-    score_col = infer.get_score_column(JOB)
-    label_col = infer.get_label_column(JOB)
+    perf_df = dataframe[[SCORE_COLUMN, LABEL_COLUMN]].dropna()
 
-    # Build a clean subset: drop rows where either column is null
-    perf_df = dataframe[[score_col, label_col]].dropna()
-
-    y_true = perf_df[label_col]
-    y_pred = perf_df[score_col]
+    y_true = perf_df[LABEL_COLUMN]
+    y_pred = perf_df[SCORE_COLUMN]
 
     # Matthews Correlation Coefficient
     mcc = matthews_corrcoef(y_true, y_pred)
@@ -103,12 +113,6 @@ def metrics(dataframe: pandas.DataFrame) -> dict:
             }
         )
 
-    supplemental_performance = {
-        "matthews_corrcoef": round(float(mcc), 4),
-        "cohen_kappa": round(float(kappa), 4),
-        "per_class_metrics": per_class_table,  # generic_table artifact
-    }
-
     # ------------------------------------------------------------------
     # 3. OOTB Volumetrics  (total record count)
     # ------------------------------------------------------------------
@@ -116,7 +120,7 @@ def metrics(dataframe: pandas.DataFrame) -> dict:
     volumetric_results = volumetric_monitor.count(job_json=JOB)
 
     # ------------------------------------------------------------------
-    # 4. Dimensional Record Counts  (volumetrics + pandas value_counts)
+    # 4. Dimensional Record Counts  (pandas value_counts)
     # ------------------------------------------------------------------
     dimensional_tables = {}
 
@@ -132,7 +136,6 @@ def metrics(dataframe: pandas.DataFrame) -> dict:
             .sort_index()
         )
 
-        # Build a generic_table-compatible list of dicts
         table_rows = [
             {col: str(category), "record_count": int(count)}
             for category, count in counts.items()
@@ -145,18 +148,14 @@ def metrics(dataframe: pandas.DataFrame) -> dict:
     # ------------------------------------------------------------------
     combined_output = {}
 
-    # Merge OOTB performance results
     combined_output.update(performance_results)
 
-    # Merge supplemental performance metrics
-    combined_output["matthews_corrcoef"] = supplemental_performance["matthews_corrcoef"]
-    combined_output["cohen_kappa"] = supplemental_performance["cohen_kappa"]
-    combined_output["per_class_metrics"] = supplemental_performance["per_class_metrics"]
+    combined_output["matthews_corrcoef"] = round(float(mcc), 4)
+    combined_output["cohen_kappa"] = round(float(kappa), 4)
+    combined_output["per_class_metrics"] = per_class_table
 
-    # Merge OOTB volumetric results
     combined_output.update(volumetric_results)
 
-    # Merge dimensional tables (each key is a generic_table artifact)
     combined_output.update(dimensional_tables)
 
     yield combined_output
